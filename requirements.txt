@@ -1,0 +1,11 @@
+pandas
+numpy
+scikit-learn
+streamlit
+plotly
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+openpyxl
+pytest
