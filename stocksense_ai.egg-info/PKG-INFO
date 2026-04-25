@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: stocksense-ai
+Version: 0.1.0
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: scikit-learn
+Requires-Dist: fastapi
+Requires-Dist: streamlit
