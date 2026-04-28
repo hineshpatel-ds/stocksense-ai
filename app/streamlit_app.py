@@ -14,7 +14,11 @@ sys.path.append(str(PROJECT_ROOT))
 
 from src.analytics.kpi_engine import calculate_inventory_kpis
 from src.data.validation import ValidationResult, validate_inventory_data
-
+from src.recommendations.recommendation_engine import (
+    generate_recommendations,
+    recommendations_to_dataframe,
+    summarize_recommendations,
+)
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -893,15 +897,20 @@ def main() -> None:
 
     kpi_result = calculate_inventory_kpis(validation_result.cleaned_data)
 
+    recommendations = generate_recommendations(kpi_result["product_performance"])
+    recommendation_df = recommendations_to_dataframe(recommendations)
+    recommendation_summary = summarize_recommendations(recommendations)
+
     summary = kpi_result["summary_metrics"]
     risk_summary = kpi_result["risk_summary"]
     product_performance = kpi_result["product_performance"]
     category_performance = kpi_result["category_performance"]
     enriched_data = kpi_result["enriched_data"]
 
-    dashboard_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
+    dashboard_tab, recommendations_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
         [
             "Overview",
+            "Recommendations",
             "Products",
             "Risk Center",
             "Categories",
@@ -915,6 +924,94 @@ def main() -> None:
         render_ai_style_insights(product_performance, category_performance, summary)
         st.markdown("")
         render_charts(enriched_data, product_performance, category_performance)
+
+    with recommendations_tab:
+        st.markdown('<div class="section-title">AI Decision Recommendations</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">Actionable inventory decisions generated from KPI and risk analysis.</div>',
+            unsafe_allow_html=True,
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            render_metric_card(
+                "Total Recommendations",
+                str(recommendation_summary["total_recommendations"]),
+                "Total suggested business actions",
+            )
+
+        with col2:
+            render_metric_card(
+                "High Priority",
+                str(recommendation_summary["high_priority"]),
+                "Requires immediate attention",
+            )
+
+        with col3:
+            render_metric_card(
+                "Medium Priority",
+                str(recommendation_summary["medium_priority"]),
+                "Needs monitoring or review",
+            )
+
+        with col4:
+            render_metric_card(
+                "Low Priority",
+                str(recommendation_summary["low_priority"]),
+                "Stable or maintain strategy",
+            )
+
+        st.markdown("")
+
+        if recommendation_df.empty:
+            st.markdown(
+                """
+                <div class="success-card">
+                    No major recommendation needed. Inventory appears stable based on current rules.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.dataframe(
+                recommendation_df[
+                    [
+                        "priority",
+                        "product_name",
+                        "category",
+                        "recommendation_type",
+                        "action",
+                        "reason",
+                        "confidence",
+                        "current_stock",
+                        "avg_daily_demand",
+                        "days_of_stock_left",
+                        "product_health_score",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "priority": "Priority",
+                    "product_name": "Product",
+                    "category": "Category",
+                    "recommendation_type": "Type",
+                    "action": "Recommended Action",
+                    "reason": "Business Reason",
+                    "confidence": "Confidence",
+                    "current_stock": "Current Stock",
+                    "avg_daily_demand": st.column_config.NumberColumn(
+                        "Avg Daily Demand", format="%.2f"
+                    ),
+                    "days_of_stock_left": "Days Left",
+                    "product_health_score": st.column_config.ProgressColumn(
+                        "Health Score",
+                        min_value=0,
+                        max_value=100,
+                    ),
+                },
+            )
 
     with products_tab:
         render_product_table(product_performance)
