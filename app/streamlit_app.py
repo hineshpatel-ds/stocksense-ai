@@ -19,6 +19,11 @@ from src.recommendations.recommendation_engine import (
     recommendations_to_dataframe,
     summarize_recommendations,
 )
+from src.models.forecasting_engine import (
+    forecasts_to_dataframe,
+    generate_product_forecasts,
+    summarize_forecasts,
+)
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -901,15 +906,25 @@ def main() -> None:
     recommendation_df = recommendations_to_dataframe(recommendations)
     recommendation_summary = summarize_recommendations(recommendations)
 
+    forecasts = generate_product_forecasts(
+        enriched_data=kpi_result["enriched_data"],
+        product_performance=kpi_result["product_performance"],
+        forecast_horizon_days=30,
+    )
+
+    forecast_df = forecasts_to_dataframe(forecasts)
+    forecast_summary = summarize_forecasts(forecast_df)
+
     summary = kpi_result["summary_metrics"]
     risk_summary = kpi_result["risk_summary"]
     product_performance = kpi_result["product_performance"]
     category_performance = kpi_result["category_performance"]
     enriched_data = kpi_result["enriched_data"]
 
-    dashboard_tab, recommendations_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
+    dashboard_tab, forecast_tab, recommendations_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
         [
             "Overview",
+            "Forecasting",
             "Recommendations",
             "Products",
             "Risk Center",
@@ -924,6 +939,130 @@ def main() -> None:
         render_ai_style_insights(product_performance, category_performance, summary)
         st.markdown("")
         render_charts(enriched_data, product_performance, category_performance)
+
+    with forecast_tab:
+        st.markdown('<div class="section-title">Demand Forecasting</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">30-day product demand forecast with safety stock and reorder planning.</div>',
+            unsafe_allow_html=True,
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            render_metric_card(
+                "Products Forecasted",
+                str(forecast_summary["total_products_forecasted"]),
+                "Number of products included in forecast",
+            )
+
+        with col2:
+            render_metric_card(
+                "Predicted Demand",
+                f'{forecast_summary["total_predicted_demand"]:,}',
+                "Expected total demand for next 30 days",
+            )
+
+        with col3:
+            render_metric_card(
+                "Recommended Reorder",
+                f'{forecast_summary["total_recommended_reorder"]:,}',
+                "Total suggested reorder quantity",
+            )
+
+        with col4:
+            render_metric_card(
+                "High Risk Forecasts",
+                str(forecast_summary["high_forecast_stockout_risk"]),
+                "Products likely to face future stockout",
+            )
+
+        st.markdown("")
+
+        if forecast_df.empty:
+            st.markdown(
+                """
+                <div class="warning-card">
+                    Forecast could not be generated. Please check if enough historical sales data is available.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown("#### Product Demand Forecast")
+
+            st.dataframe(
+                forecast_df[
+                    [
+                        "product_name",
+                        "category",
+                        "current_stock",
+                        "avg_daily_demand",
+                        "recent_avg_daily_demand",
+                        "predicted_demand",
+                        "safety_stock",
+                        "recommended_reorder_quantity",
+                        "trend_direction",
+                        "forecast_stockout_risk",
+                        "confidence",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "product_name": "Product",
+                    "category": "Category",
+                    "current_stock": "Current Stock",
+                    "avg_daily_demand": st.column_config.NumberColumn(
+                        "Avg Daily Demand", format="%.2f"
+                    ),
+                    "recent_avg_daily_demand": st.column_config.NumberColumn(
+                        "Recent Avg Demand", format="%.2f"
+                    ),
+                    "predicted_demand": "Predicted 30-Day Demand",
+                    "safety_stock": "Safety Stock",
+                    "recommended_reorder_quantity": "Recommended Reorder",
+                    "trend_direction": "Trend",
+                    "forecast_stockout_risk": "Forecast Risk",
+                    "confidence": "Confidence",
+                },
+            )
+
+            top_reorder = forecast_df.sort_values(
+                "recommended_reorder_quantity", ascending=False
+            ).head(8)
+
+            fig = px.bar(
+                top_reorder,
+                x="recommended_reorder_quantity",
+                y="product_name",
+                orientation="h",
+                title="Top Recommended Reorder Quantities",
+                labels={
+                    "recommended_reorder_quantity": "Recommended Reorder Quantity",
+                    "product_name": "Product",
+                },
+            )
+
+            # For your Bar Charts, merge the logic like this:
+            fig.update_layout(
+                height=380,
+                margin=dict(l=20, r=20, t=60, b=20),
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font=dict(color="#0f172a"), # Force dark text
+                yaxis=dict(
+                    categoryorder="total ascending", # Keep your ordering logic
+                    tickfont=dict(color="#64748b"),   # Add the styling logic
+                    gridcolor="#e2e8f0"
+                ),
+                xaxis=dict(
+                    tickfont=dict(color="#64748b"),
+                    gridcolor="#e2e8f0"
+                )
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
 
     with recommendations_tab:
         st.markdown('<div class="section-title">AI Decision Recommendations</div>', unsafe_allow_html=True)
