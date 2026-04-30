@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local data not for image
+data/raw/
+data/processed/
+
+# Local experiments
+mlruns/
+artifacts/
+
+# Environment files
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+
+# Logs
+*.log

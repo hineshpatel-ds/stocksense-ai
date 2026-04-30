@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stocksense-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - STOCKSENSE_LLM_PROVIDER=none
+    volumes:
+      - .:/app
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stocksense-dashboard
+    command: streamlit run app/streamlit_app.py --server.address=0.0.0.0 --server.port=8501
+    ports:
+      - "8501:8501"
+    environment:
+      - STOCKSENSE_LLM_PROVIDER=none
+    volumes:
+      - .:/app
+    depends_on:
+      - api
