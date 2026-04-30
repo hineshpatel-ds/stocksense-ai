@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List
+from src.chatbot.llm_adapter import enhance_answer_with_llm
 
 from src.chatbot.tools import (
     ToolResult,
@@ -70,10 +71,18 @@ class InventoryAIAgent:
             product_name=product_name,
         )
 
-        final_answer = self._format_final_answer(
+        tool_based_answer = self._format_final_answer(
             tool_result=tool_result,
             intent=intent,
         )
+
+        llm_response = enhance_answer_with_llm(
+            question=question,
+            intent=intent,
+            tool_answer=tool_based_answer,
+        )
+
+        final_answer = llm_response.text
 
         return AgentResponse(
             answer=final_answer,
