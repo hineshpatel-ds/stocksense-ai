@@ -24,6 +24,7 @@ from src.models.forecasting_engine import (
     generate_product_forecasts,
     summarize_forecasts,
 )
+from src.chatbot.agent import InventoryAIAgent
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -902,6 +903,12 @@ def main() -> None:
 
     kpi_result = calculate_inventory_kpis(validation_result.cleaned_data)
 
+    summary = kpi_result["summary_metrics"]
+    risk_summary = kpi_result["risk_summary"]
+    product_performance = kpi_result["product_performance"]
+    category_performance = kpi_result["category_performance"]
+    enriched_data = kpi_result["enriched_data"]
+
     recommendations = generate_recommendations(kpi_result["product_performance"])
     recommendation_df = recommendations_to_dataframe(recommendations)
     recommendation_summary = summarize_recommendations(recommendations)
@@ -915,17 +922,22 @@ def main() -> None:
     forecast_df = forecasts_to_dataframe(forecasts)
     forecast_summary = summarize_forecasts(forecast_df)
 
-    summary = kpi_result["summary_metrics"]
-    risk_summary = kpi_result["risk_summary"]
-    product_performance = kpi_result["product_performance"]
-    category_performance = kpi_result["category_performance"]
-    enriched_data = kpi_result["enriched_data"]
+    agent_context = {
+        "summary_metrics": summary,
+        "risk_summary": risk_summary,
+        "product_performance": product_performance,
+        "category_performance": category_performance,
+        "recommendation_df": recommendation_df,
+        "forecast_df": forecast_df,
+        "forecast_summary": forecast_summary,
+    }
 
-    dashboard_tab, forecast_tab, recommendations_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
+    dashboard_tab, forecast_tab, recommendations_tab, agent_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
         [
             "Overview",
             "Forecasting",
             "Recommendations",
+            "AI Agent",
             "Products",
             "Risk Center",
             "Categories",
@@ -1151,6 +1163,75 @@ def main() -> None:
                     ),
                 },
             )
+
+    with agent_tab:
+        st.markdown('<div class="section-title">AI Inventory Agent</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">Ask business questions about inventory, demand, stock risk, waste, forecasts, and recommendations.</div>',
+            unsafe_allow_html=True,
+        )
+
+        agent = InventoryAIAgent()
+
+        if "agent_messages" not in st.session_state:
+            st.session_state.agent_messages = [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Hello, I am your StockSense AI Inventory Agent. "
+                        "You can ask me about inventory summary, top products, stockout risk, "
+                        "overstock risk, waste, forecasts, and recommendations."
+                    ),
+                }
+            ]
+
+        suggested_questions = [
+            "Give me inventory summary",
+            "Which products are at stockout risk?",
+            "Which products have highest waste?",
+            "What are the top products by revenue?",
+            "What recommendations do you have?",
+            "Give me forecast summary",
+        ]
+
+        st.markdown("#### Suggested Questions")
+
+        cols = st.columns(3)
+        selected_question = None
+
+        for index, question in enumerate(suggested_questions):
+            with cols[index % 3]:
+                if st.button(question, key=f"suggested_question_{index}"):
+                    selected_question = question
+
+        typed_question = st.chat_input("Ask StockSense AI about your inventory...")
+
+        final_question = typed_question or selected_question
+
+        if final_question:
+            st.session_state.agent_messages.append(
+                {"role": "user", "content": final_question}
+            )
+
+            response = agent.answer_question(final_question, agent_context)
+
+            assistant_message = (
+                f"{response.answer}\n\n"
+                f"---\n"
+                f"Intent detected: `{response.intent}`  \n"
+                f"Tools used: `{', '.join(response.tools_used)}`  \n"
+                f"Confidence: `{response.confidence}`"
+            )
+
+            st.session_state.agent_messages.append(
+                {"role": "assistant", "content": assistant_message}
+            )
+
+        st.markdown("#### Conversation")
+
+        for message in st.session_state.agent_messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
     with products_tab:
         render_product_table(product_performance)
