@@ -34,3 +34,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local experiment artifacts
+artifacts/
