@@ -1,5 +1,7 @@
 # StockSense AI
 
+![CI](https://github.com/hineshpatel-ds/stocksense-ai/actions/workflows/ci.yml/badge.svg)
+
 StockSense AI is an AI-powered inventory intelligence platform that helps businesses upload inventory data, analyze stock performance, forecast future demand, detect risks, generate recommendations, and ask business questions through an AI chatbot.
 
 ## Project Goals
