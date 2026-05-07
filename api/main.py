@@ -22,6 +22,7 @@ from src.recommendations.recommendation_engine import (
     recommendations_to_dataframe,
     summarize_recommendations,
 )
+from src.database.inventory_repository import InventoryRepository
 
 
 app = FastAPI(
@@ -176,6 +177,25 @@ def run_full_analysis(df: pd.DataFrame) -> Dict[str, Any]:
         },
     }
 
+def run_analysis_from_database_batch(batch_id: int) -> Dict[str, Any]:
+    """
+    Load inventory records from SQLite by batch_id and run full analysis.
+
+    This allows the API to analyze previously uploaded data without requiring
+    the user to upload the same file again.
+    """
+
+    repository = InventoryRepository()
+    stored_df = repository.load_inventory_records(batch_id=batch_id)
+
+    if stored_df.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No inventory records found for batch_id={batch_id}",
+        )
+
+    return run_full_analysis(stored_df)
+
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
@@ -274,6 +294,145 @@ def ask_inventory_agent(
     return make_json_safe(
         {
             "is_valid": True,
+            "question": question,
+            "answer": response.answer,
+            "intent": response.intent,
+            "tools_used": response.tools_used,
+            "confidence": response.confidence,
+        }
+    )
+    
+
+@app.post("/uploads/save")
+def save_inventory_upload(
+    file: UploadFile = File(...),
+    company_name: str = Form("Demo Company"),
+    industry: str = Form("General Inventory"),
+) -> Dict[str, Any]:
+    """
+    Validate uploaded inventory file and save clean records into SQLite.
+    """
+
+    df = read_uploaded_inventory_file(file)
+    validation_result = validate_inventory_data(df)
+
+    if not validation_result.is_valid:
+        return make_json_safe(
+            {
+                "is_saved": False,
+                "is_valid": False,
+                "data_quality_score": validation_result.data_quality_score,
+                "errors": validation_result.errors,
+                "warnings": validation_result.warnings,
+                "message": "Upload was not saved because validation failed.",
+            }
+        )
+
+    repository = InventoryRepository()
+
+    batch_id = repository.save_inventory_dataframe(
+        df=validation_result.cleaned_data,
+        company_name=company_name,
+        industry=industry,
+        source_filename=file.filename or "uploaded_inventory.csv",
+        data_quality_score=validation_result.data_quality_score,
+    )
+
+    return make_json_safe(
+        {
+            "is_saved": True,
+            "is_valid": True,
+            "batch_id": batch_id,
+            "company_name": company_name,
+            "industry": industry,
+            "source_filename": file.filename,
+            "row_count": len(validation_result.cleaned_data),
+            "data_quality_score": validation_result.data_quality_score,
+            "warnings": validation_result.warnings,
+            "message": "Inventory upload saved successfully.",
+        }
+    )
+
+
+@app.get("/uploads")
+def list_upload_batches(limit: int = 10) -> Dict[str, Any]:
+    """
+    List recent inventory upload batches saved in SQLite.
+    """
+
+    repository = InventoryRepository()
+    batches_df = repository.get_upload_batches(limit=limit)
+
+    return make_json_safe(
+        {
+            "count": len(batches_df),
+            "batches": batches_df,
+        }
+    )
+
+
+@app.get("/uploads/{batch_id}/analyze")
+def analyze_saved_upload(batch_id: int) -> Dict[str, Any]:
+    """
+    Run inventory analysis on a previously saved upload batch.
+    """
+
+    analysis_result = run_analysis_from_database_batch(batch_id=batch_id)
+
+    if not analysis_result["is_valid"]:
+        return make_json_safe(analysis_result)
+
+    return make_json_safe(
+        {
+            "is_valid": True,
+            "batch_id": batch_id,
+            "data_quality_score": analysis_result["data_quality_score"],
+            "warnings": analysis_result["warnings"],
+            "summary_metrics": analysis_result["summary_metrics"],
+            "risk_summary": analysis_result["risk_summary"],
+            "forecast_summary": analysis_result["forecast_summary"],
+            "recommendation_summary": analysis_result["recommendation_summary"],
+            "product_performance": analysis_result["product_performance"],
+            "category_performance": analysis_result["category_performance"],
+            "forecast_results": analysis_result["forecast_results"],
+            "recommendations": analysis_result["recommendations"],
+        }
+    )
+
+
+@app.post("/uploads/{batch_id}/ask")
+def ask_agent_about_saved_upload(
+    batch_id: int,
+    question: str = Form(...),
+) -> Dict[str, Any]:
+    """
+    Ask the AI inventory agent a question about a previously saved upload batch.
+    """
+
+    analysis_result = run_analysis_from_database_batch(batch_id=batch_id)
+
+    if not analysis_result["is_valid"]:
+        return make_json_safe(
+            {
+                "is_valid": False,
+                "batch_id": batch_id,
+                "data_quality_score": analysis_result["data_quality_score"],
+                "errors": analysis_result["errors"],
+                "warnings": analysis_result["warnings"],
+                "answer": "I cannot answer questions until the stored data passes validation.",
+            }
+        )
+
+    agent = InventoryAIAgent()
+    response = agent.answer_question(
+        question=question,
+        context=analysis_result["agent_context"],
+    )
+
+    return make_json_safe(
+        {
+            "is_valid": True,
+            "batch_id": batch_id,
             "question": question,
             "answer": response.answer,
             "intent": response.intent,
