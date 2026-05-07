@@ -37,3 +37,9 @@ Thumbs.db
 
 # Local experiment artifacts
 artifacts/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+data/database/*.db
