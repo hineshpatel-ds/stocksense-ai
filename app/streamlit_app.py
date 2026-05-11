@@ -25,6 +25,7 @@ from src.models.forecasting_engine import (
     summarize_forecasts,
 )
 from src.chatbot.agent import InventoryAIAgent
+from src.database.inventory_repository import InventoryRepository
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -252,56 +253,154 @@ def render_header() -> None:
     )
 
 
-def render_sidebar() -> tuple[pd.DataFrame | None, str]:
+def render_sidebar() -> tuple[pd.DataFrame | None, str, Dict[str, Any]]:
     """
-    Render sidebar upload controls and return selected dataframe.
+    Render sidebar controls and return selected dataframe.
+
+    Supported modes:
+    - Sample demo dataset
+    - New file upload
+    - Saved database batch
     """
 
     st.sidebar.markdown("## StockSense AI")
     st.sidebar.markdown("Inventory Intelligence Platform")
     st.sidebar.markdown("---")
 
-    st.sidebar.markdown("### Upload Inventory Data")
+    repository = InventoryRepository()
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload CSV or Excel file",
-        type=["csv", "xlsx", "xls"],
-        help="Upload inventory data with required columns such as date, product, stock, sales, waste, and price.",
+    data_mode = st.sidebar.radio(
+        "Choose data source",
+        options=[
+            "Sample Demo Data",
+            "Upload New File",
+            "Saved Database Batch",
+        ],
+        help="Select whether to use sample data, upload a new file, or load a previously saved database batch.",
     )
 
-    use_sample_data = st.sidebar.checkbox(
-        "Use sample demo dataset",
-        value=uploaded_file is None,
-        help="Use synthetic data for demo and development.",
-    )
+    sidebar_metadata: Dict[str, Any] = {
+        "data_mode": data_mode,
+        "uploaded_filename": None,
+        "company_name": "Demo Company",
+        "industry": "General Inventory",
+        "save_clicked": False,
+        "selected_batch_id": None,
+    }
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### Current Version")
-    st.sidebar.markdown("**MVP Module:** Dashboard + KPI Analytics")
-    st.sidebar.markdown("**Status:** Development")
 
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.name.endswith(".csv"):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
+    if data_mode == "Sample Demo Data":
+        st.sidebar.markdown("### Sample Dataset")
 
-            return df, f"Uploaded file: {uploaded_file.name}"
-
-        except Exception as exc:
-            st.sidebar.error(f"Could not read uploaded file: {exc}")
-            return None, "Upload failed"
-
-    if use_sample_data:
         if SAMPLE_DATA_PATH.exists():
             df = pd.read_csv(SAMPLE_DATA_PATH)
-            return df, "Sample demo dataset"
+            st.sidebar.success("Sample dataset loaded.")
+            return df, "Sample demo dataset", sidebar_metadata
 
         st.sidebar.error("Sample dataset not found. Run scripts/generate_sample_data.py first.")
-        return None, "Sample dataset missing"
+        return None, "Sample dataset missing", sidebar_metadata
 
-    return None, "No dataset selected"
+    if data_mode == "Upload New File":
+        st.sidebar.markdown("### Upload Inventory Data")
+
+        uploaded_file = st.sidebar.file_uploader(
+            "Upload CSV or Excel file",
+            type=["csv", "xlsx", "xls"],
+            help="Upload inventory data with required columns such as date, product, stock, sales, waste, and price.",
+        )
+
+        st.sidebar.markdown("### Save Upload")
+
+        company_name = st.sidebar.text_input(
+            "Company name",
+            value="Demo Company",
+            help="Used when saving this upload into the local database.",
+        )
+
+        industry = st.sidebar.text_input(
+            "Industry",
+            value="General Inventory",
+            help="Example: Food Chain, Retail, Pharmacy, Sports Retail.",
+        )
+
+        save_clicked = st.sidebar.button(
+            "Save valid upload to database",
+            help="The file will be saved only if validation passes.",
+        )
+
+        sidebar_metadata.update(
+            {
+                "company_name": company_name,
+                "industry": industry,
+                "save_clicked": save_clicked,
+            }
+        )
+
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith(".csv"):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+
+                sidebar_metadata["uploaded_filename"] = uploaded_file.name
+
+                return df, f"Uploaded file: {uploaded_file.name}", sidebar_metadata
+
+            except Exception as exc:
+                st.sidebar.error(f"Could not read uploaded file: {exc}")
+                return None, "Upload failed", sidebar_metadata
+
+        st.sidebar.info("Upload a CSV or Excel file to begin.")
+        return None, "No uploaded file selected", sidebar_metadata
+
+    if data_mode == "Saved Database Batch":
+        st.sidebar.markdown("### Saved Upload Batches")
+
+        try:
+            batches_df = repository.get_upload_batches(limit=20)
+        except Exception as exc:
+            st.sidebar.error(f"Could not load saved batches: {exc}")
+            return None, "Database load failed", sidebar_metadata
+
+        if batches_df.empty:
+            st.sidebar.warning("No saved uploads found yet.")
+            st.sidebar.caption("Upload a file first, then save it to the database.")
+            return None, "No saved batches", sidebar_metadata
+
+        batch_options = {}
+
+        for _, row in batches_df.iterrows():
+            label = (
+                f"Batch {row['batch_id']} · {row['company_name']} · "
+                f"{row['source_filename']} · {row['uploaded_at']}"
+            )
+            batch_options[label] = int(row["batch_id"])
+
+        selected_label = st.sidebar.selectbox(
+            "Select saved batch",
+            options=list(batch_options.keys()),
+        )
+
+        selected_batch_id = batch_options[selected_label]
+        sidebar_metadata["selected_batch_id"] = selected_batch_id
+
+        try:
+            df = repository.load_inventory_records(batch_id=selected_batch_id)
+        except Exception as exc:
+            st.sidebar.error(f"Could not load selected batch: {exc}")
+            return None, "Saved batch load failed", sidebar_metadata
+
+        if df.empty:
+            st.sidebar.error("Selected batch has no inventory records.")
+            return None, "Empty saved batch", sidebar_metadata
+
+        st.sidebar.success(f"Loaded batch {selected_batch_id} from database.")
+
+        return df, f"Saved database batch: {selected_batch_id}", sidebar_metadata
+
+    return None, "No dataset selected", sidebar_metadata
 
 
 def render_empty_state() -> None:
@@ -379,6 +478,67 @@ def render_validation_result(validation_result: ValidationResult, data_source: s
                 """,
                 unsafe_allow_html=True,
             )
+
+def handle_database_save(
+    validation_result: ValidationResult,
+    sidebar_metadata: Dict[str, Any],
+) -> None:
+    """
+    Save validated uploaded inventory data into SQLite when user clicks save.
+
+    The system saves only valid data. Invalid uploads are never stored.
+    """
+
+    should_save = (
+        sidebar_metadata.get("data_mode") == "Upload New File"
+        and sidebar_metadata.get("save_clicked") is True
+    )
+
+    if not should_save:
+        return
+
+    if not validation_result.is_valid:
+        st.markdown(
+            """
+            <div class="error-card">
+                Upload was not saved because validation failed. Please fix the data quality issues first.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    repository = InventoryRepository()
+
+    try:
+        batch_id = repository.save_inventory_dataframe(
+            df=validation_result.cleaned_data,
+            company_name=sidebar_metadata.get("company_name", "Demo Company"),
+            industry=sidebar_metadata.get("industry", "General Inventory"),
+            source_filename=sidebar_metadata.get("uploaded_filename") or "uploaded_inventory.csv",
+            data_quality_score=validation_result.data_quality_score,
+        )
+
+        st.markdown(
+            f"""
+            <div class="success-card">
+                <strong>Upload saved successfully.</strong><br>
+                Batch ID: {batch_id}<br>
+                You can now reload this data from the <strong>Saved Database Batch</strong> option in the sidebar.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    except Exception as exc:
+        st.markdown(
+            f"""
+            <div class="error-card">
+                Could not save upload to database: {exc}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def render_metric_card(label: str, value: str, help_text: str) -> None:
@@ -887,7 +1047,7 @@ def main() -> None:
     apply_custom_css()
     render_header()
 
-    raw_df, data_source = render_sidebar()
+    raw_df, data_source, sidebar_metadata = render_sidebar()
 
     if raw_df is None:
         render_empty_state()
@@ -896,6 +1056,7 @@ def main() -> None:
     validation_result = validate_inventory_data(raw_df)
 
     render_validation_result(validation_result, data_source)
+    handle_database_save(validation_result, sidebar_metadata)
 
     if not validation_result.is_valid:
         render_data_quality_details(validation_result)
@@ -932,12 +1093,13 @@ def main() -> None:
         "forecast_summary": forecast_summary,
     }
 
-    dashboard_tab, forecast_tab, recommendations_tab, agent_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
+    dashboard_tab, forecast_tab, recommendations_tab, agent_tab, saved_batches_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
         [
             "Overview",
             "Forecasting",
             "Recommendations",
             "AI Agent",
+            "Saved Batches",
             "Products",
             "Risk Center",
             "Categories",
@@ -1232,6 +1394,66 @@ def main() -> None:
         for message in st.session_state.agent_messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
+
+    with saved_batches_tab:
+        st.markdown('<div class="section-title">Saved Upload Batches</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">Recently saved inventory uploads stored in the local SQLite database.</div>',
+            unsafe_allow_html=True,
+        )
+
+        repository = InventoryRepository()
+
+        try:
+            batches_df = repository.get_upload_batches(limit=20)
+
+            if batches_df.empty:
+                st.markdown(
+                    """
+                    <div class="warning-card">
+                        No saved upload batches found. Upload a file and click "Save valid upload to database" from the sidebar.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.dataframe(
+                    batches_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "batch_id": "Batch ID",
+                        "company_name": "Company",
+                        "industry": "Industry",
+                        "source_filename": "Source File",
+                        "row_count": "Rows",
+                        "data_quality_score": st.column_config.ProgressColumn(
+                            "Data Quality",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                        "uploaded_at": "Uploaded At",
+                    },
+                )
+
+                st.markdown(
+                    """
+                    <div class="insight-card">
+                        To analyze a saved batch, select <strong>Saved Database Batch</strong> from the sidebar and choose the batch ID.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        except Exception as exc:
+            st.markdown(
+                f"""
+                <div class="error-card">
+                    Could not load saved batches: {exc}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     with products_tab:
         render_product_table(product_performance)

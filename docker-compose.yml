@@ -6,7 +6,7 @@ services:
     container_name: stocksense-api
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - STOCKSENSE_LLM_PROVIDER=none
       - STOCKSENSE_DB_PATH=data/database/stocksense.db
