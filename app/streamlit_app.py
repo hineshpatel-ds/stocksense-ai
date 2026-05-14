@@ -26,6 +26,7 @@ from src.models.forecasting_engine import (
 )
 from src.chatbot.agent import InventoryAIAgent
 from src.database.inventory_repository import InventoryRepository
+from src.monitoring.drift_monitor import monitor_inventory_drift
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -1083,6 +1084,11 @@ def main() -> None:
     forecast_df = forecasts_to_dataframe(forecasts)
     forecast_summary = summarize_forecasts(forecast_df)
 
+    monitoring_result = monitor_inventory_drift(
+        enriched_data=kpi_result["enriched_data"],
+        current_window_days=30,
+    )
+
     agent_context = {
         "summary_metrics": summary,
         "risk_summary": risk_summary,
@@ -1093,12 +1099,13 @@ def main() -> None:
         "forecast_summary": forecast_summary,
     }
 
-    dashboard_tab, forecast_tab, recommendations_tab, agent_tab, saved_batches_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
+    dashboard_tab, forecast_tab, recommendations_tab, agent_tab, monitoring_tab, saved_batches_tab, products_tab, risks_tab, categories_tab, quality_tab = st.tabs(
         [
             "Overview",
             "Forecasting",
             "Recommendations",
             "AI Agent",
+            "Monitoring",
             "Saved Batches",
             "Products",
             "Risk Center",
@@ -1395,65 +1402,200 @@ def main() -> None:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-    with saved_batches_tab:
-        st.markdown('<div class="section-title">Saved Upload Batches</div>', unsafe_allow_html=True)
+    with monitoring_tab:
+        st.markdown('<div class="section-title">Monitoring & Drift Detection</div>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-subtitle">Recently saved inventory uploads stored in the local SQLite database.</div>',
+            '<div class="section-subtitle">Compares older historical inventory behavior with the most recent period to detect changing patterns.</div>',
             unsafe_allow_html=True,
         )
 
-        repository = InventoryRepository()
+        summary = monitoring_result.summary
 
-        try:
-            batches_df = repository.get_upload_batches(limit=20)
-
-            if batches_df.empty:
-                st.markdown(
-                    """
-                    <div class="warning-card">
-                        No saved upload batches found. Upload a file and click "Save valid upload to database" from the sidebar.
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.dataframe(
-                    batches_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "batch_id": "Batch ID",
-                        "company_name": "Company",
-                        "industry": "Industry",
-                        "source_filename": "Source File",
-                        "row_count": "Rows",
-                        "data_quality_score": st.column_config.ProgressColumn(
-                            "Data Quality",
-                            min_value=0,
-                            max_value=100,
-                        ),
-                        "uploaded_at": "Uploaded At",
-                    },
-                )
-
-                st.markdown(
-                    """
-                    <div class="insight-card">
-                        To analyze a saved batch, select <strong>Saved Database Batch</strong> from the sidebar and choose the batch ID.
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-        except Exception as exc:
+        if summary["monitoring_status"] == "Insufficient Data":
             st.markdown(
                 f"""
-                <div class="error-card">
-                    Could not load saved batches: {exc}
+                <div class="warning-card">
+                    {summary["message"]}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+        else:
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                render_metric_card(
+                    "Monitoring Status",
+                    summary["monitoring_status"],
+                    "Overall drift monitoring condition",
+                )
+
+            with col2:
+                render_metric_card(
+                    "High Drift Features",
+                    str(summary["high_drift_features"]),
+                    "Features with significant distribution change",
+                )
+
+            with col3:
+                render_metric_card(
+                    "Medium Drift Features",
+                    str(summary["medium_drift_features"]),
+                    "Features that should be watched",
+                )
+
+            with col4:
+                render_metric_card(
+                    "Strong Demand Shifts",
+                    str(summary["products_with_strong_demand_shift"]),
+                    "Products with strong demand increase or decrease",
+                )
+
+            st.markdown("")
+
+            st.markdown(
+                f"""
+                <div class="insight-card">
+                    <strong>Reference Period:</strong> {summary["reference_start"]} to {summary["reference_end"]}<br>
+                    <strong>Current Period:</strong> {summary["current_start"]} to {summary["current_end"]}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("#### Numeric Drift")
+
+            if monitoring_result.numeric_drift.empty:
+                st.info("No numeric drift results available.")
+            else:
+                st.dataframe(
+                    monitoring_result.numeric_drift,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "feature": "Feature",
+                        "reference_mean": st.column_config.NumberColumn(
+                            "Reference Mean", format="%.2f"
+                        ),
+                        "current_mean": st.column_config.NumberColumn(
+                            "Current Mean", format="%.2f"
+                        ),
+                        "drift_score": st.column_config.NumberColumn(
+                            "Drift Score", format="%.4f"
+                        ),
+                        "drift_level": "Drift Level",
+                    },
+                )
+
+            st.markdown("#### Categorical Drift")
+
+            if monitoring_result.categorical_drift.empty:
+                st.info("No categorical drift results available.")
+            else:
+                st.dataframe(
+                    monitoring_result.categorical_drift,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "feature": "Feature",
+                        "unique_reference_values": "Reference Unique Values",
+                        "unique_current_values": "Current Unique Values",
+                        "drift_score": st.column_config.NumberColumn(
+                            "Drift Score", format="%.4f"
+                        ),
+                        "drift_level": "Drift Level",
+                    },
+                )
+
+            st.markdown("#### Product Demand Shift")
+
+            if monitoring_result.demand_shift.empty:
+                st.info("No demand shift results available.")
+            else:
+                demand_display_df = monitoring_result.demand_shift.copy()
+                demand_display_df["demand_change_percent"] = (
+                    demand_display_df["demand_change_percent"] * 100
+                )
+
+                st.dataframe(
+                    demand_display_df.head(20),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "product_id": "Product ID",
+                        "product_name": "Product",
+                        "reference_avg_daily_demand": st.column_config.NumberColumn(
+                            "Reference Avg Daily Demand", format="%.2f"
+                        ),
+                        "current_avg_daily_demand": st.column_config.NumberColumn(
+                            "Current Avg Daily Demand", format="%.2f"
+                        ),
+                        "demand_change_percent": st.column_config.NumberColumn(
+                            "Demand Change %", format="%.1f%%"
+                        ),
+                        "demand_shift_level": "Demand Shift",
+                    },
+                )
+
+        with saved_batches_tab:
+            st.markdown('<div class="section-title">Saved Upload Batches</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-subtitle">Recently saved inventory uploads stored in the local SQLite database.</div>',
+                unsafe_allow_html=True,
+            )
+
+            repository = InventoryRepository()
+
+            try:
+                batches_df = repository.get_upload_batches(limit=20)
+
+                if batches_df.empty:
+                    st.markdown(
+                        """
+                        <div class="warning-card">
+                            No saved upload batches found. Upload a file and click "Save valid upload to database" from the sidebar.
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.dataframe(
+                        batches_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "batch_id": "Batch ID",
+                            "company_name": "Company",
+                            "industry": "Industry",
+                            "source_filename": "Source File",
+                            "row_count": "Rows",
+                            "data_quality_score": st.column_config.ProgressColumn(
+                                "Data Quality",
+                                min_value=0,
+                                max_value=100,
+                            ),
+                            "uploaded_at": "Uploaded At",
+                        },
+                    )
+
+                    st.markdown(
+                        """
+                        <div class="insight-card">
+                            To analyze a saved batch, select <strong>Saved Database Batch</strong> from the sidebar and choose the batch ID.
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            except Exception as exc:
+                st.markdown(
+                    f"""
+                    <div class="error-card">
+                        Could not load saved batches: {exc}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
     with products_tab:
         render_product_table(product_performance)
