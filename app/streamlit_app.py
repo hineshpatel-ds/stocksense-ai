@@ -27,6 +27,7 @@ from src.models.forecasting_engine import (
 from src.chatbot.agent import InventoryAIAgent
 from src.database.inventory_repository import InventoryRepository
 from src.monitoring.drift_monitor import monitor_inventory_drift
+from src.security.upload_security import validate_upload_metadata
 
 SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "sample" / "sample_inventory.csv"
 
@@ -339,6 +340,15 @@ def render_sidebar() -> tuple[pd.DataFrame | None, str, Dict[str, Any]]:
         )
 
         if uploaded_file is not None:
+            security_result = validate_upload_metadata(
+                filename=uploaded_file.name,
+                file_size_bytes=uploaded_file.size,
+            )
+
+            if not security_result.is_allowed:
+                st.sidebar.error(security_result.message)
+                return None, "Upload rejected by security checks", sidebar_metadata
+
             try:
                 if uploaded_file.name.endswith(".csv"):
                     df = pd.read_csv(uploaded_file)
@@ -352,9 +362,6 @@ def render_sidebar() -> tuple[pd.DataFrame | None, str, Dict[str, Any]]:
             except Exception as exc:
                 st.sidebar.error(f"Could not read uploaded file: {exc}")
                 return None, "Upload failed", sidebar_metadata
-
-        st.sidebar.info("Upload a CSV or Excel file to begin.")
-        return None, "No uploaded file selected", sidebar_metadata
 
     if data_mode == "Saved Database Batch":
         st.sidebar.markdown("### Saved Upload Batches")

@@ -10,6 +10,8 @@ services:
     environment:
       - STOCKSENSE_LLM_PROVIDER=none
       - STOCKSENSE_DB_PATH=data/database/stocksense.db
+      - STOCKSENSE_MAX_UPLOAD_SIZE_MB=10
+      - STOCKSENSE_CORS_ORIGINS=*
     volumes:
       - .:/app
 
@@ -24,6 +26,8 @@ services:
     environment:
       - STOCKSENSE_LLM_PROVIDER=none
       - STOCKSENSE_DB_PATH=data/database/stocksense.db
+      - STOCKSENSE_MAX_UPLOAD_SIZE_MB=10
+      - STOCKSENSE_CORS_ORIGINS=*
     volumes:
       - .:/app
     depends_on:

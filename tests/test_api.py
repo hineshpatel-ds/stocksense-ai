@@ -89,7 +89,7 @@ def test_validate_endpoint_rejects_unsupported_file():
     )
 
     assert response.status_code == 400
-    assert "Unsupported file format" in response.json()["detail"]
+    assert "Unsupported file extension" in response.json()["detail"]
 
 def test_save_upload_endpoint_with_sample_data(monkeypatch, tmp_path):
     test_db_path = tmp_path / "test_api_stocksense.db"

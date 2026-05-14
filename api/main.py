@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import io
 import math
 from typing import Any, Dict
@@ -23,6 +24,7 @@ from src.recommendations.recommendation_engine import (
     summarize_recommendations,
 )
 from src.database.inventory_repository import InventoryRepository
+from src.security.upload_security import validate_upload_metadata
 
 
 app = FastAPI(
@@ -35,9 +37,32 @@ app = FastAPI(
 )
 
 # CORS allows the frontend dashboard or future React app to call this API.
+def get_allowed_cors_origins() -> list[str]:
+    """
+    Get allowed CORS origins from environment variable.
+
+    Development default:
+        *
+
+    Production example:
+        https://stocksense-ai.com,https://app.stocksense-ai.com
+    """
+
+    raw_origins = os.getenv("STOCKSENSE_CORS_ORIGINS", "*")
+
+    if raw_origins.strip() == "*":
+        return ["*"]
+
+    return [
+        origin.strip()
+        for origin in raw_origins.split(",")
+        if origin.strip()
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development only. Restrict this in production.
+    allow_origins=get_allowed_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +74,11 @@ def read_uploaded_inventory_file(file: UploadFile) -> pd.DataFrame:
     Read uploaded inventory file into a pandas DataFrame.
 
     Supports CSV and Excel files.
+
+    Security checks:
+    - filename must exist
+    - extension must be allowed
+    - file size must be within configured limit
     """
 
     filename = file.filename or ""
@@ -56,10 +86,23 @@ def read_uploaded_inventory_file(file: UploadFile) -> pd.DataFrame:
     try:
         file_bytes = file.file.read()
 
-        if filename.endswith(".csv"):
+        security_result = validate_upload_metadata(
+            filename=filename,
+            file_size_bytes=len(file_bytes),
+        )
+
+        if not security_result.is_allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=security_result.message,
+            )
+
+        extension = security_result.extension
+
+        if extension == ".csv":
             return pd.read_csv(io.BytesIO(file_bytes))
 
-        if filename.endswith((".xlsx", ".xls")):
+        if extension in [".xlsx", ".xls"]:
             return pd.read_excel(io.BytesIO(file_bytes))
 
         raise HTTPException(
