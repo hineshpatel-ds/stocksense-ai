@@ -84,6 +84,27 @@ StockSense AI converts inventory data into decision-ready intelligence:
 - GitHub Actions CI
 - Automated tests with Pytest
 
+### Data Persistence
+
+- SQLite-backed inventory repository
+- Saves validated upload batches for later reuse
+- List and re-analyze past uploads without re-uploading files
+- Ask the AI agent questions about a previously saved batch
+
+### Drift Monitoring
+
+- Compares current inventory data against a reference window
+- Numeric feature drift scoring
+- Categorical feature drift scoring
+- Drift level classification (low, medium, high)
+- Dashboard tab for monitoring status at a glance
+
+### Upload Security
+
+- File extension and MIME type checks
+- Upload size limits
+- Metadata validation before parsing untrusted files
+
 ---
 
 ## Architecture
@@ -101,12 +122,15 @@ FastAPI Backend
 Core Python Services
    |
    |-- Data Validation Engine
+   |-- Upload Security Layer
    |-- KPI Analytics Engine
    |-- Forecasting Engine
    |-- Recommendation Engine
+   |-- Drift Monitoring Engine
    |-- AI Agent Layer
    |-- LLM Adapter
    |-- MLflow Tracking
+   |-- SQLite Persistence Layer
 ```
 
 Detailed architecture is available in:
@@ -156,17 +180,21 @@ stocksense-ai/
 ├── notebooks/
 ├── scripts/
 │   ├── generate_sample_data.py
+│   ├── run_database_demo.py
 │   ├── run_forecasting_demo.py
 │   ├── run_kpi_demo.py
 │   ├── run_mlflow_forecasting_experiment.py
+│   ├── run_monitoring_demo.py
 │   └── run_recommendation_demo.py
 ├── src/
 │   ├── analytics/
 │   ├── chatbot/
 │   ├── data/
+│   ├── database/
 │   ├── models/
 │   ├── monitoring/
-│   └── recommendations/
+│   ├── recommendations/
+│   └── security/
 ├── tests/
 ├── .github/
 │   └── workflows/
@@ -318,6 +346,10 @@ http://127.0.0.1:5000
 | POST | `/validate` | Validate uploaded inventory file |
 | POST | `/analyze` | Run full inventory analysis |
 | POST | `/ask` | Ask AI agent a business question |
+| POST | `/uploads/save` | Validate and save an upload batch to SQLite |
+| GET | `/uploads` | List recent saved upload batches |
+| GET | `/uploads/{batch_id}/analyze` | Run full analysis on a saved batch |
+| POST | `/uploads/{batch_id}/ask` | Ask the AI agent about a saved batch |
 
 More details are available in:
 
@@ -412,6 +444,9 @@ MVP modules completed:
 - FastAPI backend
 - Docker setup
 - GitHub Actions CI
+- SQLite persistence layer for uploaded inventory batches
+- Inventory drift monitoring
+- Upload security hardening
 
 ---
 
@@ -419,17 +454,16 @@ MVP modules completed:
 
 Future improvements:
 
-- Real database integration with PostgreSQL
+- Production database (PostgreSQL) for multi-tenant scale
 - User authentication
 - Multi-company workspace support
 - Advanced forecasting models
 - Model registry
-- Drift monitoring
 - Scheduled retraining
 - Cloud deployment
 - Report export as PDF
 - React frontend
-- Production-grade security controls
+- Expanded production-grade security controls (auth, rate limiting, audit logging)
 
 ---
 

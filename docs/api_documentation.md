@@ -138,6 +138,73 @@ Should I reorder Veggie Burger next month?
 
 ---
 
+## POST /uploads/save
+
+Validates an uploaded inventory file and, if valid, persists the cleaned records to the SQLite database as a new upload batch.
+
+### Input
+
+Multipart form data:
+
+```text
+file: CSV or Excel inventory file
+company_name: optional, defaults to "Demo Company"
+industry: optional, defaults to "General Inventory"
+```
+
+### Example Response
+
+```json
+{
+  "is_saved": true,
+  "is_valid": true,
+  "batch_id": 1,
+  "company_name": "Demo Company",
+  "industry": "General Inventory",
+  "source_filename": "sample_inventory.csv",
+  "row_count": 1440,
+  "data_quality_score": 100,
+  "warnings": [],
+  "message": "Inventory upload saved successfully."
+}
+```
+
+If validation fails, the batch is not saved and `is_saved` is `false`.
+
+---
+
+## GET /uploads
+
+Lists recently saved upload batches.
+
+### Query Parameters
+
+```text
+limit: number of batches to return (default 10)
+```
+
+---
+
+## GET /uploads/{batch_id}/analyze
+
+Runs the full analysis pipeline (KPIs, forecasts, recommendations) on a previously saved upload batch, without needing to re-upload the file. Returns the same shape as `POST /analyze`.
+
+---
+
+## POST /uploads/{batch_id}/ask
+
+Asks the AI inventory agent a question about a previously saved upload batch.
+
+### Input
+
+Multipart form data:
+
+```text
+question: business question
+```
+
+---
+
 ## Error Handling
 
 Unsupported file formats return:
@@ -187,14 +254,17 @@ curl.exe -X POST "http://127.0.0.1:8000/ask" `
 
 ## Production Notes
 
-For production:
+Already implemented:
 
-- Restrict CORS origins
+- File extension and size validation on upload (`src/security/upload_security.py`)
+- Configurable CORS origins via `STOCKSENSE_CORS_ORIGINS`
+- SQLite persistence for uploaded batches
+
+Still needed for production:
+
 - Add authentication
-- Add request size limits
 - Add rate limiting
-- Store uploaded files securely
+- Store uploaded files securely (object storage, not local disk)
 - Add audit logging
-- Use a production database
-- Validate file size and MIME type
+- Migrate from SQLite to a production database (e.g. PostgreSQL)
 - Use HTTPS
