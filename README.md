@@ -3,6 +3,7 @@
 StockSense AI is a production-style AI inventory intelligence platform that helps businesses upload inventory data, validate data quality, analyze inventory performance, forecast demand, generate business recommendations, and ask inventory questions through an AI agent.
 
 ![CI](https://github.com/hineshpatel-ds/stocksense-ai/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ---
 
@@ -182,7 +183,7 @@ stocksense-ai/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/stocksense-ai.git
+git clone https://github.com/hineshpatel-ds/stocksense-ai.git
 cd stocksense-ai
 ```
 

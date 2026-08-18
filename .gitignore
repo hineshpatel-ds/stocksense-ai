@@ -43,3 +43,8 @@ artifacts/
 *.sqlite
 *.sqlite3
 data/database/*.db
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
